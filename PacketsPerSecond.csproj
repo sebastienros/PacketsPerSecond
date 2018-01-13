@@ -2,7 +2,17 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
     <TargetFramework>netcoreapp2.0</TargetFramework>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove=".gitignore" />
+    <None Remove="README.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommandLineParser" Version="2.2.1" />
+  </ItemGroup>
 
 </Project>
