@@ -7,9 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove=".dockerignore" />
     <None Remove=".gitignore" />
+    <None Remove="build.sh" />
     <None Remove="Dockerfile" />
     <None Remove="README.md" />
+    <None Remove="run.sh" />
   </ItemGroup>
 
   <ItemGroup>

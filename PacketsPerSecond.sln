@@ -7,8 +7,11 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PacketsPerSecond", "Packets
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{E391AB2E-BDC4-4A16-BBE4-9D5B38F41493}"
 	ProjectSection(SolutionItems) = preProject
+		.dockerignore = .dockerignore
 		.gitignore = .gitignore
+		build.sh = build.sh
 		Dockerfile = Dockerfile
+		run.sh = run.sh
 	EndProjectSection
 EndProject
 Global
