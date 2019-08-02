@@ -14,7 +14,7 @@ namespace PacketsPerSecond
         private const int _port = 5201;
         private const int _backlog = 1024;
 
-        private static readonly byte[] _payload = new byte[] { 1 };
+        private static byte[] _payload = null;
 
         private static Stopwatch _stopwatch = Stopwatch.StartNew();
         private static int _connections;
@@ -32,6 +32,10 @@ namespace PacketsPerSecond
 
             [Option('P', "parallel", Default = 1)]
             public int Parallel { get; set; }
+
+            [Option('L', "length", Default = 1)]
+            public int Length { get; set; }
+
         }
 
         static int Main(string[] args)
@@ -67,6 +71,12 @@ namespace PacketsPerSecond
                 throw new InvalidOperationException("Server GC must be enabled");
             }
 
+            _payload = new byte[_options.Length];
+            for (int i = 0; i < _options.Length; i++)
+            {
+                _payload[i] = 1;
+            }
+            
             var writeResultsTask = WriteResults();
 
             if (options.Server)
