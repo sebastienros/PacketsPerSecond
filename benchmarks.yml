@@ -1,0 +1,29 @@
+
+jobs:
+  server:
+    source:
+      localFolder: ./
+      project: PacketsPerSecond.csproj
+    variables:
+      length: 1
+    arguments: "--server --length {{length}}"
+
+  client:
+    source:
+      localFolder: ./
+      project: PacketsPerSecond.csproj
+    waitForExit: true
+    variables:
+      threads: 1
+      length: 1
+      duration: 0
+    arguments: "--client {{serverAddress}} --threads {{threads}} --length {{length}} --duration {{duration}}"
+    options:
+      displayOutput: true
+
+scenarios:
+  packetspersecond:
+    application:
+      job: server
+    load:
+      job: client

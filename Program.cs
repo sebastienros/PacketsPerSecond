@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Runtime;
 using PacketsPerSecond;
+using Microsoft.Crank.EventSources;
 
 const int Port = 5201;
 const int Backlog = 1024;
@@ -11,8 +12,9 @@ const int Backlog = 1024;
 byte[] payload = null;
 var stopwatch = Stopwatch.StartNew();
 int connections = 0;
-long packets = 0;
-Options options;
+int errors = 0;
+var packets = new ThreadLocal<int>(() => 0, true);
+Options options = null;
 
 var parser = new Parser(settings =>
 {
@@ -20,13 +22,17 @@ var parser = new Parser(settings =>
     settings.HelpWriter = Console.Out;
 });
 
-return parser.ParseArguments<Options>(args).MapResult(
-    o => { options = o; return Run(); },
+parser.ParseArguments<Options>(args).MapResult(
+    o => { options = o; return 0; },
     _ => 1
 );
 
-int Run()
+return await Run();
+
+async Task<int> Run()
 {
+    Console.WriteLine("Starting...");
+
     if (!options.Server && options.Client == null)
     {
         throw new InvalidOperationException("Either '-s' or '-c' is required");
@@ -47,93 +53,131 @@ int Run()
     {
         payload[i] = 1;
     }
-    
+
+    // Wait for Crank to connect to the event pipe
+    BenchmarksEventSource.Register("packetspersecond/packetspersecond", Operations.Max, Operations.Sum, "Max packets per second", "Max packets per second", "n0");
+
     var writeResultsTask = WriteResults();
 
     if (options.Server)
     {
-        RunServer();
+        await RunServer();
     }
     else
     {
-        RunClient();
+        await RunClient();
     }
 
     return 0;
 }
 
-void RunServer()
+async Task RunServer()
 {
-    using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+    using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+    socket.Bind(new IPEndPoint(IPAddress.Any, Port));
+    socket.Listen(Backlog);
+    
+    while (true)
     {
-        socket.Bind(new IPEndPoint(IPAddress.Any, Port));
-        socket.Listen(Backlog);
-        while (true)
-        {
-            var handler = socket.Accept();
+        // Waits for an incoming connection
+        var handler = await socket.AcceptAsync();
 
-            Interlocked.Increment(ref connections);
-            var thread = new Thread(() =>
+        Interlocked.Increment(ref connections);
+        var taskCount = 0;
+        var task = new Task(async () =>
+        {
+            var taskIndex = Interlocked.Increment(ref taskCount);
+            
+            try
             {
-                try
+                var buffer = new byte[payload.Length];
+                while (true)
                 {
-                    var buffer = new byte[payload.Length];
-                    while (true)
+                    var received = await handler.ReceiveAsync(buffer);
+                    var sent = await handler.SendAsync(payload);
+                    if (sent == payload.Length && received == payload.Length)
+                    {   
+                        packets.Value++;
+                    }
+                    else
                     {
-                        handler.Receive(buffer);
-                        handler.Send(payload);
-                        Interlocked.Increment(ref packets);
+                        Interlocked.Increment(ref errors);
                     }
                 }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e);
-                    Environment.Exit(1);
-                }
-            });
-            thread.Start();
-        }
+            }
+            catch (SocketException)
+            {
+                // Ignore exception when client disconnects
+                Interlocked.Increment(ref errors);
+            }
+
+            Interlocked.Decrement(ref connections);
+        });
+        task.Start();
     }
 }
 
-void RunClient()
+async Task RunClient()
 {
-    var threads = new Thread[options.Parallel];
+    BenchmarksEventSource.Register("packetspersecond/threads", Operations.First, Operations.Sum, "Threads", "Threads)", "n0");
+    BenchmarksEventSource.Register("packetspersecond/duration", Operations.First, Operations.Sum, "Duration (s)", "Duration (s)", "n0");
+    BenchmarksEventSource.Register("packetspersecond/length", Operations.First, Operations.Sum, "Length (B)", "Length (B)", "n0");
 
-    for (var i=0; i < options.Parallel; i++)
+    BenchmarksEventSource.Measure("packetspersecond/threads", options.Threads);
+    BenchmarksEventSource.Measure("packetspersecond/duration", options.Duration);
+    BenchmarksEventSource.Measure("packetspersecond/length", options.Length);
+
+    var tasks = new Task[options.Threads];
+    var stop = false;
+
+    for (var i = 0; i < options.Threads; i++)
     {
-        var thread = new Thread(() =>
+        var task = new Task(async () =>
         {
-            using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
-            {
-                socket.Connect(options.Client, Port);
-                Interlocked.Increment(ref connections);
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            await socket.ConnectAsync(options.Client, Port);
+            Interlocked.Increment(ref connections);
 
-                try
+            try
+            {
+                var buffer = new byte[payload.Length];
+                while (true)
                 {
-                    var buffer = new byte[payload.Length];
-                    while (true)
-                    {
-                        socket.Send(payload);
-                        socket.Receive(buffer);
-                        Interlocked.Increment(ref packets);
+                    var sent = await socket.SendAsync(payload);
+                    var received = await socket.ReceiveAsync(buffer);
+
+                    if (sent == payload.Length && received == payload.Length)
+                    {   
+                        packets.Value++;
                     }
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e);
-                    Environment.Exit(1);
+                    else
+                    {
+                        Interlocked.Increment(ref errors);
+                    }
+
+                    if (stop) break;
                 }
             }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                Interlocked.Increment(ref errors);
+            }
+
+            Interlocked.Decrement(ref connections);
         });
-        threads[i] = thread;
-        thread.Start();
+
+        tasks[i] = task;
+        task.Start();
     }
 
-    foreach (var thread in threads)
+    if (options.Duration > 0)
     {
-        thread.Join();
+        await Task.Delay(TimeSpan.FromSeconds(options.Duration));
+        stop = true;
     }
+
+    Task.WaitAll(tasks);
 }
 
 async Task WriteResults()
@@ -145,24 +189,29 @@ async Task WriteResults()
     {
         await Task.Delay(TimeSpan.FromSeconds(1));
 
-        var p = packets;
+        var p = packets.Values.Sum();
         var currentPackets = p - lastPackets;
-        lastPackets = packets;
+        lastPackets = p;
 
         var elapsed = stopwatch.Elapsed;
         var currentElapsed = elapsed - lastElapsed;
         lastElapsed = elapsed;
 
-        WriteResult(packets, elapsed, currentPackets, currentElapsed);
+        WriteResult(p, elapsed, currentPackets, currentElapsed, errors);
     }
 }
 
-void WriteResult(long totalPackets, TimeSpan totalElapsed, long currentPackets, TimeSpan currentElapsed)
+void WriteResult(long totalPackets, TimeSpan totalElapsed, long currentPackets, TimeSpan currentElapsed, int totalErrors)
 {
+    var currentPPS = Math.Round(currentPackets / currentElapsed.TotalSeconds);
+
+    BenchmarksEventSource.Measure("packetspersecond/packetspersecond", currentPPS);
+    
     Console.WriteLine(
         $"{DateTime.UtcNow.ToString("o")}\tTot Req\t{totalPackets}" +
-        $"\tCur PPS\t{Math.Round(currentPackets / currentElapsed.TotalSeconds)}" +
+        $"\tCur PPS\t{currentPPS}" +
         $"\tAvg PPS\t{Math.Round(totalPackets / totalElapsed.TotalSeconds)}" +
-        $"\tConn\t{connections}");
+        $"\tConn\t{connections}" +
+        $"\tErr:\t{errors}");
 }
 

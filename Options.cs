@@ -10,9 +10,12 @@ public class Options
     [Option('c', "client")]
     public string Client { get; set; }
 
-    [Option('P', "parallel", Default = 1)]
-    public int Parallel { get; set; }
+    [Option('T', "threads", Default = 1)]
+    public int Threads { get; set; }
 
     [Option('L', "length", Default = 1)]
     public int Length { get; set; }
+
+    [Option('D', "duration", Default = 0)]
+    public int Duration { get; set; }
 }

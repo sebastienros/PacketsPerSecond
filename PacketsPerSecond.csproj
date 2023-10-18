@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommandLineParser" Version="2.2.1" />
+    <PackageReference Include="Microsoft.Crank.EventSources" Version="0.2.0-alpha.23422.5" />
   </ItemGroup>
 
 </Project>
