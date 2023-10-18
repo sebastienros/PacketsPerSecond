@@ -1,16 +1,8 @@
-FROM microsoft/dotnet:sdk AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:8.0.100-rc.2 AS build
 WORKDIR /app
+COPY . .
+RUN dotnet publish -c Release
 
-# copy csproj and restore as distinct layers
-COPY *.csproj ./
-RUN dotnet restore
+EXPOSE 5201
 
-# copy everything else and build
-COPY . ./
-RUN dotnet publish -c Release -o out
-
-# build runtime image
-FROM microsoft/dotnet:runtime
-WORKDIR /app
-COPY --from=build-env /app/out ./
 ENTRYPOINT ["dotnet", "PacketsPerSecond.dll"]
