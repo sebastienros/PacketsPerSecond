@@ -2,7 +2,7 @@
 jobs:
   server:
     source:
-      localFolder: ./
+      repository: https://github.com/sebastienros/PacketsPerSecond
       project: PacketsPerSecond.csproj
     variables:
       length: 1
@@ -10,7 +10,7 @@ jobs:
 
   client:
     source:
-      localFolder: ./
+      repository: https://github.com/sebastienros/PacketsPerSecond
       project: PacketsPerSecond.csproj
     waitForExit: true
     variables:
