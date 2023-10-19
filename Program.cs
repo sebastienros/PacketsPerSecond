@@ -61,17 +61,17 @@ async Task<int> Run()
 
     if (options.Server)
     {
-        await RunServer();
+        RunServer();
     }
     else
     {
-        await RunClient();
+        RunClient();
     }
 
     return 0;
 }
 
-async Task RunServer()
+void RunServer()
 {
     using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
     socket.Bind(new IPEndPoint(IPAddress.Any, Port));
@@ -80,11 +80,11 @@ async Task RunServer()
     while (true)
     {
         // Waits for an incoming connection
-        var handler = await socket.AcceptAsync();
+        var handler = socket.Accept();
 
         Interlocked.Increment(ref connections);
         var taskCount = 0;
-        var task = new Task(async () =>
+        var thread = new Thread(() =>
         {
             var taskIndex = Interlocked.Increment(ref taskCount);
             
@@ -93,8 +93,8 @@ async Task RunServer()
                 var buffer = new byte[payload.Length];
                 while (true)
                 {
-                    var received = await handler.ReceiveAsync(buffer);
-                    var sent = await handler.SendAsync(payload);
+                    var received = handler.Receive(buffer);
+                    var sent = handler.Send(payload);
                     if (sent == payload.Length && received == payload.Length)
                     {   
                         packets.Value++;
@@ -113,11 +113,12 @@ async Task RunServer()
 
             Interlocked.Decrement(ref connections);
         });
-        task.Start();
+        
+        thread.Start();
     }
 }
 
-async Task RunClient()
+void RunClient()
 {
     BenchmarksEventSource.Register("packetspersecond/threads", Operations.First, Operations.Sum, "Threads", "Threads)", "n0");
     BenchmarksEventSource.Register("packetspersecond/duration", Operations.First, Operations.Sum, "Duration (s)", "Duration (s)", "n0");
@@ -127,15 +128,15 @@ async Task RunClient()
     BenchmarksEventSource.Measure("packetspersecond/duration", options.Duration);
     BenchmarksEventSource.Measure("packetspersecond/length", options.Length);
 
-    var tasks = new Task[options.Threads];
+    var threads = new Thread[options.Threads];
     var stop = false;
 
     for (var i = 0; i < options.Threads; i++)
     {
-        var task = new Task(async () =>
+        var thread = new Thread(() =>
         {
             using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            await socket.ConnectAsync(options.Client, Port);
+            socket.Connect(options.Client, Port);
             Interlocked.Increment(ref connections);
 
             try
@@ -143,8 +144,8 @@ async Task RunClient()
                 var buffer = new byte[payload.Length];
                 while (true)
                 {
-                    var sent = await socket.SendAsync(payload);
-                    var received = await socket.ReceiveAsync(buffer);
+                    var sent = socket.Send(payload);
+                    var received = socket.Receive(buffer);
 
                     if (sent == payload.Length && received == payload.Length)
                     {   
@@ -167,17 +168,20 @@ async Task RunClient()
             Interlocked.Decrement(ref connections);
         });
 
-        tasks[i] = task;
-        task.Start();
+        threads[i] = thread;
+        thread.Start();
     }
 
     if (options.Duration > 0)
     {
-        await Task.Delay(TimeSpan.FromSeconds(options.Duration));
+        Thread.Sleep(TimeSpan.FromSeconds(options.Duration));
         stop = true;
     }
 
-    Task.WaitAll(tasks);
+    foreach (var thread in threads)
+    {
+        thread.Join();
+    }
 }
 
 async Task WriteResults()
