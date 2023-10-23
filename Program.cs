@@ -56,6 +56,7 @@ async Task<int> Run()
 
     // Wait for Crank to connect to the event pipe
     BenchmarksEventSource.Register("packetspersecond/packetspersecond", Operations.Max, Operations.Sum, "Max packets per second", "Max packets per second", "n0");
+    BenchmarksEventSource.Register("packetspersecond/bandwidth", Operations.Max, Operations.Sum, "Max bandwidth (Gb/s)", "Max bandwidth (Gb/s)", "n2");
 
     var writeResultsTask = WriteResults();
 
@@ -82,6 +83,7 @@ void RunServer()
     {
         // Waits for an incoming connection
         var handler = socket.Accept();
+        handler.NoDelay = true;
 
         Interlocked.Increment(ref connections);
         var taskCount = 0;
@@ -210,14 +212,16 @@ async Task WriteResults()
 
 void WriteResult(long totalPackets, TimeSpan totalElapsed, long currentPackets, TimeSpan currentElapsed, int totalErrors)
 {
-    var currentPPS = Math.Round(currentPackets / currentElapsed.TotalSeconds);
+    var currentRps = Math.Round(currentPackets / currentElapsed.TotalSeconds);
+    var bandwidth = Math.Round(currentRps * options.Length * 8 / 1_000_000_000, 2);
 
-    BenchmarksEventSource.Measure("packetspersecond/packetspersecond", currentPPS);
-    
+    BenchmarksEventSource.Measure("packetspersecond/packetspersecond", currentRps);
+    BenchmarksEventSource.Measure("packetspersecond/bandwidth", bandwidth);
+
     Console.WriteLine(
-        $"{DateTime.UtcNow.ToString("o")}\tTot Req\t{totalPackets}" +
-        $"\tCur PPS\t{currentPPS}" +
-        $"\tAvg PPS\t{Math.Round(totalPackets / totalElapsed.TotalSeconds)}" +
+        $"{DateTime.UtcNow:o}" +
+        $"\tCur RPS\t{currentRps}" +
+        $"\t{bandwidth} Gb/s" +
         $"\tConn\t{connections}" +
         $"\tErr:\t{errors}");
 }
