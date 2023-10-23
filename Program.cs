@@ -74,6 +74,7 @@ async Task<int> Run()
 void RunServer()
 {
     using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+    socket.NoDelay = true;
     socket.Bind(new IPEndPoint(IPAddress.Any, Port));
     socket.Listen(Backlog);
     
@@ -136,6 +137,7 @@ void RunClient()
         var thread = new Thread(() =>
         {
             using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            socket.NoDelay = true;
             socket.Connect(options.Client, Port);
             Interlocked.Increment(ref connections);
 
@@ -202,6 +204,7 @@ async Task WriteResults()
         lastElapsed = elapsed;
 
         WriteResult(p, elapsed, currentPackets, currentElapsed, errors);
+        Interlocked.Exchange(ref errors, 0);
     }
 }
 
