@@ -1,10 +1,9 @@
 ﻿using CommandLine;
+using Microsoft.Crank.EventSources;
+using PacketsPerSecond;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime;
-using PacketsPerSecond;
-using Microsoft.Crank.EventSources;
 
 const int Port = 5201;
 const int Backlog = 1024;
@@ -43,11 +42,6 @@ async Task<int> Run()
         throw new InvalidOperationException("Cannot set both '-s' and '-c'");
     }
 
-    if (!GCSettings.IsServerGC)
-    {
-        throw new InvalidOperationException("Server GC must be enabled");
-    }
-
     payload = new byte[options.Length];
     for (int i = 0; i < options.Length; i++)
     {
@@ -78,16 +72,27 @@ void RunServer()
     socket.NoDelay = true;
     socket.Bind(new IPEndPoint(IPAddress.Any, Port));
     socket.Listen(Backlog);
-    
-    while (true)
+
+    // Waits for all incoming connections
+
+    Console.WriteLine("Waiting for client connections...");
+
+    var handlers = new List<Socket>(options.Threads);
+    while (handlers.Count < options.Threads)
     {
-        // Waits for an incoming connection
         var handler = socket.Accept();
         handler.NoDelay = true;
 
+        handlers.Add(handler);
+    }
+
+    Console.WriteLine($"All clients are connected ({handlers.Count})...");
+
+    foreach (var handler in handlers)
+    {
         Interlocked.Increment(ref connections);
         var taskCount = 0;
-        var thread = new Thread(() =>
+        var thread = new Thread((state) =>
         {
             var taskIndex = Interlocked.Increment(ref taskCount);
             
@@ -132,7 +137,10 @@ void RunClient()
     BenchmarksEventSource.Measure("packetspersecond/length", options.Length);
 
     var threads = new Thread[options.Threads];
-    var stop = false;
+    var cancellationTokenSource = new CancellationTokenSource();
+    var cancellationToken = cancellationTokenSource.Token;
+
+    var signal = new ManualResetEvent(false);
 
     for (var i = 0; i < options.Threads; i++)
     {
@@ -141,11 +149,22 @@ void RunClient()
             using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             socket.NoDelay = true;
             socket.Connect(options.Client, Port);
-            Interlocked.Increment(ref connections);
+            var created = Interlocked.Increment(ref connections);
+
+            // Start communications once all connections are created
+
+            if (created == options.Threads)
+            {
+                Console.WriteLine($"All clients are connected ({created})...");
+                signal.Set();
+            }
 
             try
             {
                 var buffer = new byte[payload.Length];
+
+                signal.WaitOne();
+
                 while (true)
                 {
                     var sent = socket.Send(payload);
@@ -160,7 +179,7 @@ void RunClient()
                         Interlocked.Increment(ref errors);
                     }
 
-                    if (stop) break;
+                    if (cancellationToken.IsCancellationRequested) break;
                 }
             }
             catch (Exception e)
@@ -178,8 +197,9 @@ void RunClient()
 
     if (options.Duration > 0)
     {
-        Thread.Sleep(TimeSpan.FromSeconds(options.Duration));
-        stop = true;
+        signal.WaitOne();
+        Console.Write($"Waiting for {options.Duration}s");
+        cancellationTokenSource.CancelAfter(TimeSpan.FromSeconds(options.Duration));
     }
 
     foreach (var thread in threads)
@@ -225,4 +245,3 @@ void WriteResult(long totalPackets, TimeSpan totalElapsed, long currentPackets, 
         $"\tConn\t{connections}" +
         $"\tErr:\t{errors}");
 }
-

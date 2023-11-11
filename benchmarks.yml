@@ -6,7 +6,7 @@ jobs:
       project: PacketsPerSecond.csproj
     variables:
       length: 1
-    arguments: "--server --length {{length}}"
+    arguments: "--server --length {{length}} --threads {{threads}}"
 
   client:
     source:
