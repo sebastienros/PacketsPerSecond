@@ -4,6 +4,7 @@ using PacketsPerSecond;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 
 const int Port = 5201;
 const int Backlog = 1024;
@@ -98,12 +99,13 @@ void RunServer()
             
             try
             {
-                var buffer = new byte[payload.Length];
+                var length = payload.Length;
+                var buffer = new byte[length];
                 while (true)
                 {
-                    var received = handler.Receive(buffer);
-                    var sent = handler.Send(payload);
-                    if (sent == payload.Length && received == payload.Length)
+                    var received = Receive(handler, buffer, length);
+                    var sent = Send(handler, payload, length);
+                    if (sent == length && received == length)
                     {   
                         packets.Value++;
                     }
@@ -161,16 +163,17 @@ void RunClient()
 
             try
             {
-                var buffer = new byte[payload.Length];
+                var length = payload.Length;
+                var buffer = new byte[length];
 
                 signal.WaitOne();
 
                 while (true)
                 {
-                    var sent = socket.Send(payload);
-                    var received = socket.Receive(buffer);
-
-                    if (sent == payload.Length && received == payload.Length)
+                    var sent = Send(socket, payload, length);
+                    var received = Receive(socket, buffer, length);
+                    
+                    if (sent == length && received == length)
                     {   
                         packets.Value++;
                     }
@@ -198,7 +201,7 @@ void RunClient()
     if (options.Duration > 0)
     {
         signal.WaitOne();
-        Console.Write($"Waiting for {options.Duration}s");
+        Console.WriteLine($"Running for {options.Duration}s");
         cancellationTokenSource.CancelAfter(TimeSpan.FromSeconds(options.Duration));
     }
 
@@ -206,6 +209,48 @@ void RunClient()
     {
         thread.Join();
     }
+}
+
+[MethodImpl(MethodImplOptions.AggressiveInlining)]
+int Receive(Socket handler, byte[] buffer, int toRead)
+{
+    var read = 0;
+    while (read < toRead)
+    {
+        var received = handler.Receive(buffer, read, toRead - read, SocketFlags.None);
+        if (received > 0)
+        {
+            read += received;
+        }
+        else
+        {
+            // No more data to read
+            break;
+        }
+    }
+
+    return read;
+}
+
+[MethodImpl(MethodImplOptions.AggressiveInlining)]
+int Send(Socket handler, byte[] buffer, int toWrite)
+{
+    var sent = 0;
+    while (sent < toWrite)
+    {
+        var written = handler.Send(buffer, sent, toWrite - sent, SocketFlags.None);
+        if (written > 0)
+        {
+            sent += written;
+        }
+        else
+        {
+            // No more data to read
+            break;
+        }
+    }
+
+    return sent;
 }
 
 async Task WriteResults()
