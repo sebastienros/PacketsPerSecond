@@ -1,11 +1,13 @@
+variables:
+  length: 1 # default content length, use 1 to measure packets per second
+  threads: 512 # number of connections to establish
+  duration: 15 # duration in seconds of the benchmark
 
 jobs:
   server:
     source:
       repository: https://github.com/sebastienros/PacketsPerSecond
       project: PacketsPerSecond.csproj
-    variables:
-      length: 1
     arguments: "--server --length {{length}} --threads {{threads}}"
 
   client:
@@ -13,10 +15,6 @@ jobs:
       repository: https://github.com/sebastienros/PacketsPerSecond
       project: PacketsPerSecond.csproj
     waitForExit: true
-    variables:
-      threads: 1
-      length: 1
-      duration: 0
     arguments: "--client {{serverAddress}} --threads {{threads}} --length {{length}} --duration {{duration}}"
     options:
       displayOutput: true
@@ -25,5 +23,9 @@ scenarios:
   packetspersecond:
     application:
       job: server
+      variables: 
+        length: 1
     load:
       job: client
+      variables: 
+        length: 1
